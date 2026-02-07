@@ -5,6 +5,9 @@ from scrapers import get_safe_master_list, get_contest_signals
 
 st.set_page_config(page_title="Placement OS", layout="wide")
 
+if 'manual_entries' not in st.session_state:
+    st.session_state['manual_entries'] = []
+    
 # --- 0. HARD RESET BUTTON (To fix your cache issue) ---
 with st.sidebar:
     st.header("⚙️ Admin Controls")
@@ -162,5 +165,5 @@ for _, row in stats_df.iterrows():
                 "salary": "Salary"
             },
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
