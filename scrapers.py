@@ -2,112 +2,105 @@ import pandas as pd
 from jobspy import scrape_jobs
 import time
 import random
-import streamlit as st
-import requests
-from datetime import datetime
 
-# --- SEARCH CONFIG ---
+# --- CONFIGURATION ---
+# We split searches to look like human behavior
 SEARCH_ROLES = [
-    "Software Engineer Intern",
-    "Data Science Intern",
-    "Frontend Developer",
-    "Backend Developer",
-    "Machine Learning Engineer"
+    "Software Engineer Intern", "Data Science Intern", 
+    "Frontend Developer", "Backend Developer", 
+    "Machine Learning Engineer", "Cybersecurity Analyst",
+    "VLSI Design Engineer", "Embedded Systems",
+    "Java Developer", "Python Developer"
 ]
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_safe_master_list(location="India", jobs_per_role=15):
+def get_bulk_jobs(location="India", limit_per_role=15):
     """
-    ULTRA-SAFE MODE:
-    - Fetches only 15 jobs per role.
-    - Removed 'glassdoor' to prevent 403 errors and speed up execution.
+    Fetches a large volume of jobs by iterating through roles with delays.
     """
     master_list = []
-    seen_urls = set()
     
-    # Progress Bar (So you know it's working)
-    progress_text = "🔄 Safe-Scraper: Fetching fresh jobs..."
-    my_bar = st.progress(0, text=progress_text)
+    print("--- STARTING BULK SCRAPE ---")
     
-    for i, role in enumerate(SEARCH_ROLES):
+    for role in SEARCH_ROLES:
         try:
-            # Update Progress Bar
-            pct = (i + 1) / len(SEARCH_ROLES)
-            my_bar.progress(pct, text=f"Scraping Sector: {role}...")
+            # Random delay between 2-5 seconds to avoid IP bans (Gentle Scraping)
+            sleep_time = random.uniform(2, 5)
+            time.sleep(sleep_time)
             
-            # SAFETY DELAY: Sleep 3-5 seconds between sectors
-            time.sleep(random.uniform(3, 5))
+            print(f"Scraping {role}...")
             
-            # The Scrape Request
-            # FIXED: Removed "glassdoor" to stop the 403 errors
             jobs = scrape_jobs(
-                site_name=["linkedin", "indeed"], 
+                site_name=["linkedin", "indeed", "glassdoor"],
                 search_term=role,
                 location=location,
-                results_wanted=jobs_per_role, 
-                hours_old=72, # Last 3 days only
+                results_wanted=limit_per_role, 
+                hours_old=72, # Only fresh jobs (3 days)
                 country_watchlist=["India"]
             )
             
             if not jobs.empty:
-                for _, row in jobs.iterrows():
-                    # Deduplication: Don't add the same link twice
-                    if row['job_url_direct'] not in seen_urls:
-                        
-                        # Clean Salary Formatting
-                        salary = "Not Disclosed"
-                        if pd.notnull(row.get('min_amount')) and pd.notnull(row.get('max_amount')):
-                            salary = f"{row['min_amount']} - {row['max_amount']}"
-                        elif pd.notnull(row.get('min_amount')):
-                            salary = str(row['min_amount'])
-
-                        master_list.append({
-                            "company": row['company'],
-                            "title": row['title'],
-                            "role_category": role,
-                            "salary": salary,
-                            "link": row['job_url_direct'],
-                            "source": row['site'],
-                            "date": row['date_posted'],
-                            "type": "Job Posting"
-                        })
-                        seen_urls.add(row['job_url_direct'])
-                        
+                # Add a 'Source Type' column to distinguish from contests
+                jobs['Signal Type'] = 'Job Posting'
+                jobs['Role Category'] = role
+                master_list.append(jobs)
+                
         except Exception as e:
-            # If one role fails (e.g. LinkedIn blocks us), just skip to the next one
-            print(f"Skipped {role}: {e}")
+            print(f"Error scraping {role}: {e}")
             continue
 
-    my_bar.empty() # Remove progress bar when done
-    return pd.DataFrame(master_list)
+    if not master_list:
+        return pd.DataFrame()
+    
+    # Combine everything
+    df = pd.concat(master_list, ignore_index=True)
+    
+    # Standardize Columns
+    # We ensure these columns exist even if some sources didn't return them
+    expected_cols = ['company', 'title', 'job_url_direct', 'site', 'date_posted', 'min_amount', 'Signal Type']
+    for c in expected_cols:
+        if c not in df.columns:
+            df[c] = None
+            
+    return df[expected_cols]
 
-@st.cache_data(ttl=3600, show_spinner=False)
 def get_contest_signals():
     """
-    Fetches Codeforces contests (Very safe, official API)
+    Fetches contests but formats them exactly like a Job Posting
+    so they can be merged into the main list.
     """
+    import requests
+    from datetime import datetime
+    
+    url = "https://codeforces.com/api/contest.list?gym=false"
     try:
-        url = "https://codeforces.com/api/contest.list?gym=false"
-        resp = requests.get(url, timeout=5).json()
-        if resp['status'] != 'OK': return pd.DataFrame()
-        
+        resp = requests.get(url, timeout=10).json()
+        if resp['status'] != 'OK':
+            return []
+            
+        contests = resp['result']
         signals = []
-        hiring_keywords = ["cup", "challenge", "global", "championship", "hiring", "prize"]
         
-        for c in resp['result']:
+        # Keywords indicating it's a HIRING contest, not just fun
+        hiring_keywords = ["cup", "challenge", "global", "championship", "hiring", "prize", "code", "round"]
+        
+        for c in contests:
             if c['phase'] == 'BEFORE':
                 name_lower = c['name'].lower()
+                
+                # Check if it looks like a hiring event
                 if any(k in name_lower for k in hiring_keywords):
+                    # We create a "Fake Job" row for this contest
+                    # So it fits into our main table perfectly
                     signals.append({
                         "company": f"Codeforces Event: {c['name']}",
                         "title": "Competitive Programming Challenge",
-                        "role_category": "Competitive Programming",
-                        "salary": "Prize/Hiring",
-                        "link": f"https://codeforces.com/contest/{c['id']}",
-                        "source": "Codeforces",
-                        "date": datetime.fromtimestamp(c['startTimeSeconds']).strftime('%Y-%m-%d'),
-                        "type": "Contest"
+                        "job_url_direct": f"https://codeforces.com/contest/{c['id']}",
+                        "site": "Codeforces",
+                        "date_posted": datetime.fromtimestamp(c['startTimeSeconds']).strftime('%Y-%m-%d'),
+                        "min_amount": "Prize/Hiring",
+                        "Signal Type": "Contest/Challenge"
                     })
+        
         return pd.DataFrame(signals)
     except:
         return pd.DataFrame()
