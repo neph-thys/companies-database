@@ -5,49 +5,57 @@ import random
 import streamlit as st
 from datetime import datetime
 
-# Reduced list to prevent Streamlit Timeout (we can cycle these later if needed)
+# We are sticking to the TOP 5 most popular roles for now.
+# This keeps the loop short and safe.
 SEARCH_ROLES = [
-    "Software Engineer Intern", "Data Science Intern", 
-    "Frontend Developer", "Backend Developer", 
+    "Software Engineer Intern",
+    "Data Science Intern",
+    "Frontend Developer",
+    "Backend Developer",
     "Machine Learning Engineer"
 ]
 
-@st.cache_data(ttl=3600, show_spinner=False) # Reduced to 1 hour for testing
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_safe_master_list(location="India", jobs_per_role=15):
     """
-    Optimized for Streamlit Cloud Timeouts (Faster Scrape)
+    ULTRA-SAFE MODE:
+    - Fetches only 15 jobs per role.
+    - Total ~75 jobs per run.
+    - High success rate, low ban risk.
     """
     master_list = []
     seen_urls = set()
     
-    # Progress Bar
-    progress_text = "🔄 Scraper Active: Fetching Jobs..."
+    # Progress Bar (So you know it's working)
+    progress_text = "🔄 Safe-Scraper: Fetching fresh jobs..."
     my_bar = st.progress(0, text=progress_text)
     
     for i, role in enumerate(SEARCH_ROLES):
         try:
-            # Update Progress
+            # Update Progress Bar
             pct = (i + 1) / len(SEARCH_ROLES)
-            my_bar.progress(pct, text=f"Scraping: {role}...")
+            my_bar.progress(pct, text=f"Scraping Sector: {role}...")
             
-            # REDUCED DELAY: 1-2 seconds is enough for small batches
-            time.sleep(random.uniform(1.5, 3))
+            # SAFETY DELAY: Sleep 3-5 seconds between sectors
+            # This makes us look like a human browsing slowly.
+            time.sleep(random.uniform(3, 5))
             
-            # Scrape
+            # The Scrape Request
             jobs = scrape_jobs(
                 site_name=["linkedin", "glassdoor", "indeed"], 
                 search_term=role,
                 location=location,
-                results_wanted=jobs_per_role, 
-                hours_old=72, 
+                results_wanted=jobs_per_role,  # Limited to 15 for safety
+                hours_old=72, # Last 3 days only
                 country_watchlist=["India"]
             )
             
             if not jobs.empty:
                 for _, row in jobs.iterrows():
+                    # Deduplication: Don't add the same link twice
                     if row['job_url_direct'] not in seen_urls:
                         
-                        # Normalize Salary
+                        # Clean Salary Formatting
                         salary = "Not Disclosed"
                         if pd.notnull(row.get('min_amount')) and pd.notnull(row.get('max_amount')):
                             salary = f"{row['min_amount']} - {row['max_amount']}"
@@ -67,16 +75,18 @@ def get_safe_master_list(location="India", jobs_per_role=15):
                         seen_urls.add(row['job_url_direct'])
                         
         except Exception as e:
+            # If one role fails (e.g. LinkedIn blocks us), just skip to the next one
+            # Do not crash the whole app.
             print(f"Skipped {role}: {e}")
             continue
 
-    my_bar.empty()
+    my_bar.empty() # Remove progress bar when done
     return pd.DataFrame(master_list)
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_contest_signals():
     """
-    Fetches Codeforces contests
+    Fetches Codeforces contests (Very safe, official API)
     """
     import requests
     try:
