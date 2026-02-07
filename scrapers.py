@@ -3,10 +3,10 @@ from jobspy import scrape_jobs
 import time
 import random
 import streamlit as st
+import requests
 from datetime import datetime
 
-# We are sticking to the TOP 5 most popular roles for now.
-# This keeps the loop short and safe.
+# --- SEARCH CONFIG ---
 SEARCH_ROLES = [
     "Software Engineer Intern",
     "Data Science Intern",
@@ -20,8 +20,7 @@ def get_safe_master_list(location="India", jobs_per_role=15):
     """
     ULTRA-SAFE MODE:
     - Fetches only 15 jobs per role.
-    - Total ~75 jobs per run.
-    - High success rate, low ban risk.
+    - Removed 'glassdoor' to prevent 403 errors and speed up execution.
     """
     master_list = []
     seen_urls = set()
@@ -37,15 +36,15 @@ def get_safe_master_list(location="India", jobs_per_role=15):
             my_bar.progress(pct, text=f"Scraping Sector: {role}...")
             
             # SAFETY DELAY: Sleep 3-5 seconds between sectors
-            # This makes us look like a human browsing slowly.
             time.sleep(random.uniform(3, 5))
             
             # The Scrape Request
+            # FIXED: Removed "glassdoor" to stop the 403 errors
             jobs = scrape_jobs(
-                site_name=["linkedin", "glassdoor", "indeed"], 
+                site_name=["linkedin", "indeed"], 
                 search_term=role,
                 location=location,
-                results_wanted=jobs_per_role,  # Limited to 15 for safety
+                results_wanted=jobs_per_role, 
                 hours_old=72, # Last 3 days only
                 country_watchlist=["India"]
             )
@@ -76,7 +75,6 @@ def get_safe_master_list(location="India", jobs_per_role=15):
                         
         except Exception as e:
             # If one role fails (e.g. LinkedIn blocks us), just skip to the next one
-            # Do not crash the whole app.
             print(f"Skipped {role}: {e}")
             continue
 
@@ -88,11 +86,10 @@ def get_contest_signals():
     """
     Fetches Codeforces contests (Very safe, official API)
     """
-    import requests
     try:
         url = "https://codeforces.com/api/contest.list?gym=false"
         resp = requests.get(url, timeout=5).json()
-        if resp['status'] != 'OK': return []
+        if resp['status'] != 'OK': return pd.DataFrame()
         
         signals = []
         hiring_keywords = ["cup", "challenge", "global", "championship", "hiring", "prize"]
